@@ -1,0 +1,23 @@
+services:
+  newslens:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: newslens:latest
+    container_name: newslens
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/prod.db
+      # Add your NanoGPT API key here, or set it via the Settings UI
+      # - NANO_GPT_API_KEY=your_key_here
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/settings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Topic {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  keywords  String   // JSON array of keyword strings
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  stories  Story[]
+  articles Article[]
+}
+
+model RSSSource {
+  id          String    @id @default(cuid())
+  name        String
+  url         String    @unique
+  biasLabel   String    @default("CENTER") // LEFT | CENTER_LEFT | CENTER | CENTER_RIGHT | RIGHT
+  active      Boolean   @default(true)
+  lastFetched DateTime?
+
+  articles Article[]
+}
+
+model Article {
+  id          String    @id @default(cuid())
+  sourceId    String
+  topicId     String?
+  title       String
+  url         String    @unique
+  content     String    @default("")
+  description String    @default("")
+  publishedAt DateTime?
+  fetchedAt   DateTime  @default(now())
+
+  source  RSSSource      @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  topic   Topic?         @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  stories StoryArticle[]
+}
+
+model Story {
+  id        String   @id @default(cuid())
+  topicId   String
+  title     String
+  status    String   @default("PENDING") // PENDING | ANALYZING | ANALYZED | FAILED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  topic    Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  articles StoryArticle[]
+  analysis Analysis?
+}
+
+model StoryArticle {
+  storyId   String
+  articleId String
+
+  story   Story   @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@id([storyId, articleId])
+}
+
+model Analysis {
+  id            String   @id @default(cuid())
+  storyId       String   @unique
+  coreFacts     String   // JSON array of strings
+  biasReport    String   // JSON: { sourceId: { name, bias, summary, score } }
+  probableTruth String
+  headline      String   @default("")
+  analyzedAt    DateTime @default(now())
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+}
+
+model AppSetting {
+  key   String @id
+  value String
+}
