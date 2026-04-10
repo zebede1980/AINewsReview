@@ -46,10 +46,6 @@ COPY --from=builder /app/node_modules/@prisma/adapter-better-sqlite3 ./node_modu
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/node_modules/tsx ./node_modules/tsx
-COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
-COPY --from=builder /app/node_modules/.bin/tsx ./node_modules/.bin/tsx
-
-ENV PATH="/app/node_modules/.bin:$PATH"
 
 # Copy seed script and entrypoint
 COPY --from=builder /app/prisma/seed.ts ./prisma/seed.ts
