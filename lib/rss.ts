@@ -12,6 +12,122 @@ const parser = new Parser({
   },
 });
 
+export interface FeedSearchResult {
+  title: string;
+  url: string;
+  description: string;
+  publishedAt: string | null;
+  sourceName: string;
+  sourceUrl: string;
+  score: number;
+}
+
+function tokenizeSearchQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 1);
+}
+
+function scoreSearchMatch(text: string, terms: string[]): number {
+  if (!terms.length) return 0;
+
+  const haystack = text.toLowerCase();
+  let termHits = 0;
+  for (const term of terms) {
+    if (haystack.includes(term)) {
+      termHits += 1;
+    }
+  }
+
+  if (termHits === 0) {
+    return 0;
+  }
+
+  // Bias toward items that mention more query terms.
+  return termHits / terms.length;
+}
+
+export async function searchNewsFeeds(query: string, limit = 30): Promise<FeedSearchResult[]> {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    return [];
+  }
+
+  const terms = tokenizeSearchQuery(trimmedQuery);
+  if (!terms.length) {
+    return [];
+  }
+
+  const activeSources = await db.rSSSource.findMany({
+    where: { active: true },
+    select: { name: true, url: true },
+  });
+
+  const externalSearchFeeds = [
+    {
+      name: "Google News",
+      url: `https://news.google.com/rss/search?q=${encodeURIComponent(trimmedQuery)}&hl=en-US&gl=US&ceid=US:en`,
+    },
+  ];
+
+  const searchableSources = [...activeSources, ...externalSearchFeeds];
+
+  const perSourceResults = await Promise.all(
+    searchableSources.map(async (source) => {
+      try {
+        const feed = await parser.parseURL(source.url);
+        const items = feed.items ?? [];
+
+        const matches: FeedSearchResult[] = [];
+        for (const item of items.slice(0, 80)) {
+          if (!item.link || !item.title) continue;
+
+          const combinedText = `${item.title} ${item.contentSnippet ?? ""} ${item.content ?? ""}`;
+          const score = scoreSearchMatch(combinedText, terms);
+          if (score <= 0) continue;
+
+          matches.push({
+            title: item.title,
+            url: item.link,
+            description: item.contentSnippet ?? item.description ?? "",
+            publishedAt: item.pubDate ? new Date(item.pubDate).toISOString() : null,
+            sourceName: source.name,
+            sourceUrl: source.url,
+            score,
+          });
+        }
+
+        return matches;
+      } catch (err) {
+        console.error(`[RSS search] Source failed (${source.name}):`, err instanceof Error ? err.message : err);
+        return [] as FeedSearchResult[];
+      }
+    })
+  );
+
+  const uniqueByUrl = new Map<string, FeedSearchResult>();
+  for (const result of perSourceResults.flat()) {
+    const existing = uniqueByUrl.get(result.url);
+    if (!existing || result.score > existing.score) {
+      uniqueByUrl.set(result.url, result);
+    }
+  }
+
+  return [...uniqueByUrl.values()]
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+
+      const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+      const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+      return bTime - aTime;
+    })
+    .slice(0, Math.max(1, Math.min(limit, 100)));
+}
+
 export async function fetchAllSources() {
   const sources = await db.rSSSource.findMany({ where: { active: true } });
   const topics = await db.topic.findMany({ where: { active: true } });
